@@ -374,6 +374,11 @@ Now generate the optimized metadata as JSON:
             if not title or not description or not tags:
                 raise ValueError("Missing required fields in LLM output")
             
+            # Convert literal \n sequences to actual newlines if AI included them
+            # This handles cases where AI writes "text\\nmore text" in JSON
+            if '\\n' in description:
+                description = description.replace('\\n', '\n')
+            
             return {
                 'title': title,
                 'description': description,
