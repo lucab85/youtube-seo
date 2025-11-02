@@ -1,0 +1,45 @@
+"""Video model for storing current YouTube video metadata."""
+
+from sqlalchemy import Column, String, Text, DateTime, func
+from .base import Base
+
+
+class Video(Base):
+    """Represents a YouTube video with current metadata."""
+    
+    __tablename__ = 'videos'
+    
+    video_id = Column(String(20), primary_key=True, index=True)
+    channel_id = Column(String(30), nullable=False, index=True)
+    
+    # Current metadata
+    title_current = Column(String(100), nullable=True)
+    description_current = Column(Text, nullable=True)
+    tags_current = Column(String(500), nullable=True)
+    
+    # Additional info
+    lang = Column(String(10), default='en')
+    category_id = Column(String(10), nullable=True)
+    
+    # Timestamps
+    last_synced_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+    
+    def __repr__(self):
+        return f"<Video(video_id='{self.video_id}', title='{self.title_current[:30]}...')>"
+    
+    def to_dict(self):
+        """Convert to dictionary."""
+        return {
+            'video_id': self.video_id,
+            'channel_id': self.channel_id,
+            'title': self.title_current,
+            'description': self.description_current,
+            'tags': self.tags_current,
+            'lang': self.lang,
+            'category_id': self.category_id,
+            'last_synced_at': self.last_synced_at.isoformat() if self.last_synced_at else None,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None,
+        }
