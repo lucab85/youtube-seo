@@ -179,6 +179,129 @@ class YouTubeAPIClient:
             logger.error(f"Error updating video: {e}")
             return False
     
+    def enable_monetization(self, video_id: str, license_type: str = 'youtube') -> bool:
+        """
+        Enable monetization for a video (sets up prerequisites).
+        
+        Args:
+            video_id: YouTube video ID
+            license_type: 'youtube' (standard) or 'creativeCommon'
+        
+        Returns:
+            True if successful, False otherwise
+        
+        Note:
+            IMPORTANT LIMITATIONS:
+            - YouTube Data API v3 does NOT support full monetization control
+            - This method only sets video as eligible (not made for kids, proper license)
+            - Actual monetization (ad types, etc.) must be enabled via:
+              1. YouTube Studio (manual)
+              2. Channel-level default monetization settings (applies to new uploads)
+              3. YouTube Content Manager API (for partners only)
+            
+            WORKAROUND FOR AUTOMATION:
+            If you want automatic monetization for ALL new videos:
+            1. Go to YouTube Studio > Monetization > Default settings
+            2. Enable monetization and select ad types as defaults
+            3. All future uploads will inherit these settings automatically
+        """
+        try:
+            # Get current video details
+            current_video = self.get_video_details(video_id)
+            if not current_video:
+                logger.error(f"Cannot enable monetization - video not found: {video_id}")
+                return False
+            
+            # Check current status
+            current_status = current_video.get('status', {})
+            
+            # Prepare updated status
+            updated_status = {
+                'id': video_id,
+                'status': {
+                    'privacyStatus': current_status.get('privacyStatus', 'public'),
+                    'madeForKids': False,  # Required for monetization
+                    'selfDeclaredMadeForKids': False,
+                    'license': license_type,  # 'youtube' allows monetization
+                    'embeddable': current_status.get('embeddable', True),
+                    'publicStatsViewable': current_status.get('publicStatsViewable', True)
+                }
+            }
+            
+            # Update video status
+            response = self.youtube.videos().update(
+                part='status',
+                body=updated_status
+            ).execute()
+            
+            logger.info(f"Updated video status for monetization eligibility: {video_id}")
+            logger.info(f"Video is now eligible for monetization (not made for kids, license: {license_type})")
+            logger.warning("")
+            logger.warning("⚠️  IMPORTANT: YouTube API v3 does NOT support automatic monetization activation")
+            logger.warning("")
+            logger.warning("To enable monetization automatically for ALL future videos:")
+            logger.warning("1. Go to YouTube Studio: https://studio.youtube.com")
+            logger.warning("2. Click Settings (bottom left) > Upload defaults")
+            logger.warning("3. Go to 'Advanced settings' tab")
+            logger.warning("4. Set 'Standard YouTube License'")
+            logger.warning("5. Go to 'Monetization' section in left menu")
+            logger.warning("6. Enable monetization and select ad types as defaults")
+            logger.warning("7. All new uploads will automatically use these monetization settings")
+            logger.warning("")
+            logger.warning("For THIS specific video, manually enable monetization:")
+            logger.warning("- Go to: https://studio.youtube.com/video/{}/monetization".format(video_id))
+            logger.warning("- Click 'ON' and select ad types")
+            
+            return True
+        
+        except HttpError as e:
+            logger.error(f"HTTP error enabling monetization: {e}")
+            if e.resp.status == 403:
+                logger.error("Permission denied - channel may not be in YouTube Partner Program")
+            elif e.resp.status == 400:
+                logger.error("Bad request - check if channel is monetization-eligible")
+            return False
+        except Exception as e:
+            logger.error(f"Error enabling monetization: {e}")
+            return False
+    
+    def check_monetization_status(self, video_id: str) -> Dict[str, Any]:
+        """
+        Check the monetization status and eligibility of a video.
+        
+        Args:
+            video_id: YouTube video ID
+        
+        Returns:
+            Dict with monetization information
+        """
+        try:
+            video = self.get_video_details(video_id)
+            if not video:
+                return {'error': 'Video not found'}
+            
+            status = video.get('status', {})
+            
+            # Check eligibility factors
+            made_for_kids = status.get('madeForKids', False)
+            license_type = status.get('license', 'unknown')
+            privacy = status.get('privacyStatus', 'unknown')
+            
+            eligible = not made_for_kids and license_type == 'youtube' and privacy == 'public'
+            
+            return {
+                'video_id': video_id,
+                'eligible_for_monetization': eligible,
+                'made_for_kids': made_for_kids,
+                'license': license_type,
+                'privacy': privacy,
+                'note': 'Actual monetization status (ads enabled) cannot be read via API v3'
+            }
+        
+        except Exception as e:
+            logger.error(f"Error checking monetization status: {e}")
+            return {'error': str(e)}
+    
     def list_captions(self, video_id: str) -> Optional[List[Dict[str, Any]]]:
         """
         List available captions for a video.

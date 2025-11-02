@@ -49,7 +49,8 @@ def process_single_video(
     video_url: str,
     mode: str = 'auto',
     target_keywords: list = None,
-    dry_run: bool = False
+    dry_run: bool = False,
+    enable_monetization: bool = False
 ) -> bool:
     """
     Process a single video.
@@ -59,6 +60,7 @@ def process_single_video(
         mode: 'auto' (publish immediately) or 'preview' (show only)
         target_keywords: Optional list of target keywords
         dry_run: If True, don't actually update YouTube
+        enable_monetization: If True, enable monetization for the video
     
     Returns:
         True if successful
@@ -155,6 +157,21 @@ def process_single_video(
         
         if success:
             logger.info("✅ Successfully updated video metadata")
+            
+            # Enable monetization if requested
+            if enable_monetization and not dry_run:
+                logger.info("Enabling monetization for video...")
+                monetization_success = youtube_client.enable_monetization(video_id)
+                if monetization_success:
+                    logger.info("✅ Monetization settings updated")
+                    logger.warning("⚠️  Complete monetization setup in YouTube Studio:")
+                    logger.warning("   1. Go to https://studio.youtube.com")
+                    logger.warning("   2. Select the video")
+                    logger.warning("   3. Go to Monetization tab")
+                    logger.warning("   4. Enable monetization and select ad types")
+                else:
+                    logger.error("❌ Failed to enable monetization")
+            
             notifier.notify_success(
                 video_id,
                 metadata['title'],
@@ -386,6 +403,10 @@ Examples:
     parser.add_argument('--batch', help='CSV file with video URLs for batch processing')
     parser.add_argument('--check-guardrails', metavar='VIDEO_ID',
                        help='Check performance guardrails for a video')
+    parser.add_argument('--check-monetization', metavar='VIDEO_ID',
+                       help='Check monetization eligibility status for a video')
+    parser.add_argument('--enable-monetization', action='store_true',
+                       help='Enable monetization when processing video (use with --url)')
     parser.add_argument('--dry-run', action='store_true',
                        help='Dry run mode (don\'t actually update YouTube)')
     parser.add_argument('--init-db', action='store_true',
@@ -407,6 +428,34 @@ Examples:
     # Display configuration
     logger.info(f"Using LLM provider: {Config.get_llm_provider()}")
     logger.info(f"Dry run mode: {Config.DRY_RUN_MODE or args.dry_run}")
+    
+    # Check monetization status
+    if args.check_monetization:
+        video_id = args.check_monetization
+        if not validate_video_id_format(video_id):
+            logger.error(f"Invalid video ID format: {video_id}")
+            return 1
+        
+        logger.info(f"Checking monetization status for video: {video_id}")
+        youtube_api = YouTubeAPIClient()
+        status = youtube_api.check_monetization_status(video_id)
+        
+        if 'error' in status:
+            logger.error(f"Error: {status['error']}")
+            return 1
+        
+        print(f"\n{'='*80}")
+        print("MONETIZATION STATUS")
+        print(f"{'='*80}")
+        print(f"Video ID: {status['video_id']}")
+        print(f"Eligible for monetization: {'✅ Yes' if status['eligible_for_monetization'] else '❌ No'}")
+        print(f"Made for kids: {'Yes' if status['made_for_kids'] else 'No'}")
+        print(f"License: {status['license']}")
+        print(f"Privacy: {status['privacy']}")
+        print(f"\nNote: {status['note']}")
+        print(f"{'='*80}\n")
+        
+        return 0
     
     # Check guardrails
     if args.check_guardrails:
@@ -446,7 +495,8 @@ Examples:
             video_url=args.url,
             mode=args.mode,
             target_keywords=keywords,
-            dry_run=args.dry_run
+            dry_run=args.dry_run,
+            enable_monetization=args.enable_monetization
         )
         
         return 0 if success else 1
