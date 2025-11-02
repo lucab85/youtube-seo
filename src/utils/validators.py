@@ -62,13 +62,13 @@ def extract_video_id(url: str) -> Optional[str]:
 
 def strip_hashtags(text: str) -> str:
     """
-    Remove all hashtags from text.
+    Remove all hashtags from text while preserving line breaks.
     
     Args:
         text: Input text that may contain hashtags
     
     Returns:
-        Text with hashtags removed
+        Text with hashtags removed but line breaks preserved
     """
     # Remove hashtags (# followed by word characters)
     text = re.sub(r'#\w+', '', text)
@@ -76,10 +76,21 @@ def strip_hashtags(text: str) -> str:
     # Remove standalone # characters
     text = text.replace('#', '')
     
-    # Clean up extra whitespace
-    text = re.sub(r'\s+', ' ', text).strip()
+    # Clean up extra spaces on each line (but preserve newlines)
+    lines = text.split('\n')
+    cleaned_lines = []
+    for line in lines:
+        # Collapse multiple spaces to single space within each line
+        cleaned_line = re.sub(r'[ \t]+', ' ', line).strip()
+        cleaned_lines.append(cleaned_line)
     
-    return text
+    # Rejoin with newlines
+    text = '\n'.join(cleaned_lines)
+    
+    # Remove any excessive blank lines (more than 2 consecutive newlines)
+    text = re.sub(r'\n{3,}', '\n\n', text)
+    
+    return text.strip()
 
 
 def enforce_character_limits(
@@ -243,24 +254,38 @@ def validate_video_id_format(video_id: str) -> bool:
 
 def parse_tags_input(tags_input: str) -> list:
     """
-    Parse tags from various input formats.
+    Parse and sanitize tags from various input formats.
     
     Args:
         tags_input: Tags as comma-separated string
     
     Returns:
-        List of individual tags (max 30 tags per YouTube limits)
+        List of individual sanitized tags (max 30 tags per YouTube limits)
     """
     # Split by comma
     tags = [tag.strip() for tag in tags_input.split(',')]
     
-    # Remove empty tags
-    tags = [tag for tag in tags if tag]
+    # Remove empty tags and sanitize
+    sanitized_tags = []
+    for tag in tags:
+        if not tag:
+            continue
+            
+        # Remove invalid characters (YouTube doesn't allow < > and some others)
+        tag = re.sub(r'[<>]', '', tag)
+        
+        # Ensure tag is not too long (YouTube max is 30 chars per tag)
+        if len(tag) > 30:
+            tag = tag[:30].rstrip()
+        
+        # Skip if tag becomes empty after sanitization
+        if tag:
+            sanitized_tags.append(tag)
     
     # Remove duplicates while preserving order
     seen = set()
     unique_tags = []
-    for tag in tags:
+    for tag in sanitized_tags:
         tag_lower = tag.lower()
         if tag_lower not in seen:
             seen.add(tag_lower)

@@ -149,6 +149,13 @@ class YouTubeAPIClient:
             if category_id:
                 snippet['categoryId'] = category_id
             
+            # Debug: Log description and tags
+            logger.info(f"Updating video {video_id}")
+            logger.info(f"Description has {description.count(chr(10))} newline characters")
+            logger.info(f"First 200 chars with repr: {repr(description[:200])}")
+            logger.info(f"Number of tags: {len(tags)}")
+            logger.info(f"Tags: {tags}")
+            
             # Update video
             response = self.youtube.videos().update(
                 part='snippet',

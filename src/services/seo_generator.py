@@ -83,6 +83,9 @@ class SEOGenerator:
         # Parse and validate output
         metadata = self._parse_llm_output(raw_output)
         
+        # Format description with proper line breaks
+        metadata['description'] = self._format_description_with_linebreaks(metadata['description'])
+        
         # Enforce character limits and strip hashtags
         metadata = enforce_character_limits(
             title=metadata['title'],
@@ -125,9 +128,20 @@ class SEOGenerator:
         if policy_config:
             required_disclosures = policy_config.get('required_disclosures', [])
         
-        # Primary keyword
-        primary_keyword = target_keywords[0] if target_keywords else "main topic"
-        secondary_keywords = ', '.join(target_keywords[1:5]) if target_keywords and len(target_keywords) > 1 else ""
+        # Primary keyword - extract from video title if no keywords provided
+        if target_keywords:
+            primary_keyword = target_keywords[0]
+            secondary_keywords = ', '.join(target_keywords[1:5]) if len(target_keywords) > 1 else ""
+        else:
+            # Extract key terms from video title
+            if video_title:
+                # Remove common words and extract meaningful terms
+                title_words = re.findall(r'\b[A-Z][a-z]+\b', video_title)
+                primary_keyword = title_words[0] if title_words else "the subject"
+                secondary_keywords = ', '.join(title_words[1:4]) if len(title_words) > 1 else ""
+            else:
+                primary_keyword = "the subject"
+                secondary_keywords = ""
         
         prompt = f"""You are a senior YouTube SEO strategist with 10+ years of experience optimizing video content for maximum discoverability and engagement.
 
@@ -395,6 +409,95 @@ Now generate the optimized metadata as JSON:
                 }
             
             raise ValueError("Could not parse LLM output")
+    
+    def _format_description_with_linebreaks(self, description: str) -> str:
+        """
+        Add proper line breaks to description if the AI didn't include them.
+        
+        Args:
+            description: Raw description text from AI
+        
+        Returns:
+            Description with proper formatting
+        """
+        # If description already has line breaks, return as is
+        if '\n' in description:
+            return description
+        
+        formatted = description
+        
+        # 1. Add line break after each bullet point (must come before section breaks)
+        formatted = re.sub(r'(• [^•]+?)\s+(?=•)', r'\1\n', formatted)
+        
+        # 2. Add double line break before "What You'll Learn:" section
+        formatted = re.sub(r'([.!?])\s+(What You\'ll Learn:)', r'\1\n\n\2', formatted)
+        
+        # 3. Add line break after "What You'll Learn:" header
+        formatted = re.sub(r'(What You\'ll Learn:)\s+(?=•)', r'\1\n', formatted)
+        
+        # 4. Add double line break after last bullet point before timestamps
+        formatted = re.sub(r'(• [^•]+?)\s+(\d+:\d+)', r'\1\n\n\2', formatted)
+        
+        # 5. Add line break after each timestamp line
+        formatted = re.sub(r'(\d+:\d+ [^\n]+?)\s+(?=\d+:\d+)', r'\1\n', formatted)
+        
+        # 6. Add double line break after last timestamp before next section
+        formatted = re.sub(r'(\d+:\d+ [^\n]+?)\s+([A-Z][a-z]+ (session|presentation|talk|video))', r'\1\n\n\2', formatted)
+        
+        # 7. Add double line break before major section headers
+        section_headers = [
+            'This session', 'This presentation', 'This video', 'This talk',
+            'Key Insights', 'Key Takeaways', 'Takeaways:',
+            'Additional Resources:', 'Resources:',
+            'About This Channel:', 'About the Channel:',
+            'If you enjoyed', 'If you found this video'
+        ]
+        for header in section_headers:
+            formatted = re.sub(rf'([.!?])\s+({re.escape(header)})', r'\1\n\n\2', formatted, flags=re.IGNORECASE)
+        
+        # 8. Add line break after section headers that end with colon
+        formatted = re.sub(r'(Key Insights[^:]*:)\s+(?=•)', r'\1\n', formatted)
+        formatted = re.sub(r'(Takeaways[^:]*:)\s+(?=•)', r'\1\n', formatted)
+        
+        # 9. Break up long paragraphs - add line break after sentences in paragraphs over 300 chars
+        # Split by existing double line breaks first
+        sections = formatted.split('\n\n')
+        formatted_sections = []
+        for section in sections:
+            if len(section) > 300 and '. ' in section and not section.strip().startswith('•'):
+                # Split long paragraphs at sentence boundaries
+                sentences = section.split('. ')
+                new_section = []
+                current_para = []
+                current_length = 0
+                
+                for i, sentence in enumerate(sentences):
+                    sentence_with_period = sentence if i == len(sentences) - 1 else sentence + '.'
+                    current_para.append(sentence_with_period)
+                    current_length += len(sentence_with_period)
+                    
+                    # Break paragraph every 2-3 sentences or ~200 chars
+                    if (len(current_para) >= 2 and current_length > 150) or current_length > 250:
+                        new_section.append(' '.join(current_para))
+                        current_para = []
+                        current_length = 0
+                
+                if current_para:
+                    new_section.append(' '.join(current_para))
+                
+                formatted_sections.append('\n\n'.join(new_section))
+            else:
+                formatted_sections.append(section)
+        
+        formatted = '\n\n'.join(formatted_sections)
+        
+        # 10. Clean up excessive line breaks
+        formatted = re.sub(r'\n{3,}', '\n\n', formatted)
+        
+        # 11. Ensure single line break after bullet points at end of sections
+        formatted = re.sub(r'(• [^•\n]+?)(?=\n\n)', r'\1', formatted)
+        
+        return formatted.strip()
     
     def _apply_policy_filters(
         self,
