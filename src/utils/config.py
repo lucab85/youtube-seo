@@ -63,7 +63,7 @@ class Config:
     # Character Limits
     MAX_TITLE_LENGTH = int(os.getenv('MAX_TITLE_LENGTH', '100'))
     MAX_DESCRIPTION_LENGTH = int(os.getenv('MAX_DESCRIPTION_LENGTH', '5000'))
-    MAX_TAGS_LENGTH = int(os.getenv('MAX_TAGS_LENGTH', '500'))
+    MAX_TAGS_LENGTH = 380  # YouTube actual limit is ~400 chars for all tags combined, using 380 to be safe
     
     # Feature Flags
     ENABLE_AUTO_ROLLBACK = os.getenv('ENABLE_AUTO_ROLLBACK', 'true').lower() == 'true'

@@ -261,7 +261,14 @@ def parse_tags_input(tags_input: str) -> list:
     
     Returns:
         List of individual sanitized tags (max 30 tags per YouTube limits)
+    
+    Note:
+        YouTube tags can only contain: letters, numbers, spaces, hyphens
+        Any other characters will cause API errors
+        YouTube also has a combined character limit of ~400 chars for all tags
     """
+    from .config import Config
+    
     # Split by comma
     tags = [tag.strip() for tag in tags_input.split(',')]
     
@@ -270,31 +277,56 @@ def parse_tags_input(tags_input: str) -> list:
     for tag in tags:
         if not tag:
             continue
-            
-        # Remove invalid characters (YouTube doesn't allow < > and some others)
-        tag = re.sub(r'[<>]', '', tag)
+        
+        # YouTube is very strict about tag characters
+        # Only allow: alphanumeric, spaces, hyphens
+        # Remove ALL other characters including special chars and punctuation
+        tag = re.sub(r'[^a-zA-Z0-9\s-]', '', tag)
+        
+        # Clean up multiple spaces and hyphens
+        tag = re.sub(r'\s+', ' ', tag)
+        tag = re.sub(r'-+', '-', tag)
+        tag = tag.strip().strip('-')
         
         # Ensure tag is not too long (YouTube max is 30 chars per tag)
         if len(tag) > 30:
+            # Truncate at word boundary
             tag = tag[:30].rstrip()
+            # Remove trailing hyphen if any
+            tag = tag.rstrip('-')
         
-        # Skip if tag becomes empty after sanitization
-        if tag:
+        # Skip if tag becomes empty after sanitization or is too short
+        if tag and len(tag) >= 2:
             sanitized_tags.append(tag)
     
     # Remove duplicates while preserving order
     seen = set()
     unique_tags = []
+    total_length = 0
+    max_total_length = Config.MAX_TAGS_LENGTH
+    
     for tag in sanitized_tags:
         tag_lower = tag.lower()
         if tag_lower not in seen:
+            # Calculate length with comma separator (except for first tag)
+            tag_length = len(tag) + (2 if unique_tags else 0)  # +2 for ", "
+            
+            # Check if adding this tag would exceed total character limit
+            if total_length + tag_length > max_total_length:
+                logger.warning(f"Reached total tag character limit ({max_total_length}), stopping at {len(unique_tags)} tags")
+                break
+            
+            # Check if we've reached the maximum number of tags
+            if len(unique_tags) >= 30:
+                logger.warning(f"Reached maximum tag count (30)")
+                break
+            
             seen.add(tag_lower)
             unique_tags.append(tag)
+            total_length += tag_length
     
-    # YouTube limit: maximum 30 tags
-    if len(unique_tags) > 30:
-        logger.warning(f"Tags limited from {len(unique_tags)} to 30 (YouTube maximum)")
-        unique_tags = unique_tags[:30]
+    if len(sanitized_tags) > len(unique_tags):
+        logger.info(f"Filtered tags from {len(sanitized_tags)} to {len(unique_tags)} (total {total_length} chars)")
     
     return unique_tags
 

@@ -142,6 +142,12 @@ class YouTubeAPIClient:
             
             # Prepare update body
             snippet = current_video['snippet']
+            
+            # Log current tags for comparison
+            current_tags = snippet.get('tags', [])
+            if current_tags:
+                logger.info(f"Current tags on video: {current_tags[:5]}")  # First 5 for brevity
+            
             snippet['title'] = title
             snippet['description'] = description
             snippet['tags'] = tags
@@ -155,6 +161,13 @@ class YouTubeAPIClient:
             logger.info(f"First 200 chars with repr: {repr(description[:200])}")
             logger.info(f"Number of tags: {len(tags)}")
             logger.info(f"Tags: {tags}")
+            
+            # Debug each tag individually for invalid characters
+            for i, tag in enumerate(tags):
+                # Check for any non-ASCII or special characters
+                has_special = any(ord(c) > 127 or c in '<>#' for c in tag)
+                if has_special:
+                    logger.warning(f"Tag {i} has special characters: {repr(tag)}")
             
             # Update video
             response = self.youtube.videos().update(

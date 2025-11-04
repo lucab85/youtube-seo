@@ -46,7 +46,7 @@ class AnalyticsService:
                 ids='channel==MINE',
                 startDate=start_date.isoformat(),
                 endDate=end_date.isoformat(),
-                metrics='views,estimatedMinutesWatched,averageViewDuration,likes,dislikes,comments,shares,subscribersGained,subscribersLost,impressions,impressionClickThroughRate',
+                metrics='views,estimatedMinutesWatched,averageViewDuration,likes,comments,shares,subscribersGained,subscribersLost',
                 filters=f'video=={video_id}',
                 dimensions='day'
             ).execute()
@@ -58,23 +58,23 @@ class AnalyticsService:
             # Aggregate metrics
             total_views = 0
             total_watch_time = 0
-            total_impressions = 0
-            ctr_values = []
+            total_likes = 0
+            total_comments = 0
+            total_shares = 0
             avg_view_duration_values = []
             
             for row in response['rows']:
                 day_metrics = dict(zip(response['columnHeaders'], row))
                 total_views += day_metrics.get('views', 0)
                 total_watch_time += day_metrics.get('estimatedMinutesWatched', 0)
-                total_impressions += day_metrics.get('impressions', 0)
+                total_likes += day_metrics.get('likes', 0)
+                total_comments += day_metrics.get('comments', 0)
+                total_shares += day_metrics.get('shares', 0)
                 
-                if day_metrics.get('impressionClickThroughRate'):
-                    ctr_values.append(day_metrics['impressionClickThroughRate'])
                 if day_metrics.get('averageViewDuration'):
                     avg_view_duration_values.append(day_metrics['averageViewDuration'])
             
             # Calculate averages
-            avg_ctr = sum(ctr_values) / len(ctr_values) if ctr_values else 0
             avg_view_duration = sum(avg_view_duration_values) / len(avg_view_duration_values) if avg_view_duration_values else 0
             
             baseline = {
@@ -84,13 +84,14 @@ class AnalyticsService:
                 'end_date': end_date.isoformat(),
                 'total_views': total_views,
                 'total_watch_time_minutes': total_watch_time,
-                'total_impressions': total_impressions,
-                'average_ctr': avg_ctr,
+                'total_likes': total_likes,
+                'total_comments': total_comments,
+                'total_shares': total_shares,
                 'average_view_duration_seconds': avg_view_duration,
                 'collected_at': datetime.utcnow().isoformat()
             }
             
-            logger.info(f"Baseline metrics: CTR={avg_ctr:.2%}, Views={total_views}, Impressions={total_impressions}")
+            logger.info(f"Baseline metrics: Views={total_views}, Watch time={total_watch_time}min, Likes={total_likes}")
             return baseline
         
         except Exception as e:
