@@ -69,6 +69,7 @@ class Config:
     ENABLE_AUTO_ROLLBACK = os.getenv('ENABLE_AUTO_ROLLBACK', 'true').lower() == 'true'
     ENABLE_SCHEDULED_REOPTIMIZATION = os.getenv('ENABLE_SCHEDULED_REOPTIMIZATION', 'true').lower() == 'true'
     ENABLE_ASR_FALLBACK = os.getenv('ENABLE_ASR_FALLBACK', 'false').lower() == 'true'
+    ENABLE_YT_SCHEDULING = os.getenv('ENABLE_YT_SCHEDULING', 'true').lower() == 'true'
     DRY_RUN_MODE = os.getenv('DRY_RUN_MODE', 'false').lower() == 'true'
     
     # OAuth Scopes

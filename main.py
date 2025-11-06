@@ -50,7 +50,8 @@ def process_single_video(
     mode: str = 'auto',
     target_keywords: list = None,
     dry_run: bool = False,
-    enable_monetization: bool = False
+    enable_monetization: bool = False,
+    publish_at: dict = None
 ) -> bool:
     """
     Process a single video.
@@ -61,6 +62,7 @@ def process_single_video(
         target_keywords: Optional list of target keywords
         dry_run: If True, don't actually update YouTube
         enable_monetization: If True, enable monetization for the video
+        publish_at: Optional dict with UTC datetime, timezone, and local display
     
     Returns:
         True if successful
@@ -116,11 +118,18 @@ def process_single_video(
         
         # Generate SEO metadata
         logger.info("Generating SEO metadata...")
+        
+        # Prepare context with publish_at if available
+        generation_context = {}
+        if publish_at:
+            generation_context['publish_at'] = publish_at
+        
         metadata = seo_generator.generate_metadata(
             transcript=cleaned_transcript,
             video_title=current_title,
             channel_description=channel_desc,
-            target_keywords=target_keywords
+            target_keywords=target_keywords,
+            context=generation_context
         )
         
         # Display results
@@ -152,11 +161,26 @@ def process_single_video(
             created_by='cli_user',
             reason='manual_optimization',
             performance_baseline=baseline,
-            dry_run=dry_run
+            dry_run=dry_run,
+            publish_at=publish_at
         )
         
         if success:
             logger.info("✅ Successfully updated video metadata")
+            
+            # Try to schedule publication if publish_at is provided
+            if publish_at and Config.ENABLE_YT_SCHEDULING and not dry_run:
+                logger.info(f"Attempting to schedule publication for {publish_at['local']}...")
+                schedule_result = publisher.schedule_publish(video_id, publish_at['utc'])
+                
+                if schedule_result == 'APPLIED':
+                    logger.info(f"✅ Video scheduled to publish at {publish_at['local']}")
+                elif schedule_result == 'SKIPPED_ALREADY_PUBLIC':
+                    logger.warning(f"⚠️  Video already public - scheduling not applied (planned time stored)")
+                elif schedule_result == 'FAILED_NOT_ALLOWED':
+                    logger.warning(f"⚠️  YouTube API doesn't allow scheduling for this video state (planned time stored)")
+                else:
+                    logger.warning(f"⚠️  Scheduling failed: {schedule_result} (planned time stored)")
             
             # Enable monetization if requested
             if enable_monetization and not dry_run:
@@ -172,10 +196,19 @@ def process_single_video(
                 else:
                     logger.error("❌ Failed to enable monetization")
             
+            # Build notification message
+            notification_message = f"Metadata optimized via CLI ({'dry-run' if dry_run else 'published'})"
+            if publish_at:
+                notification_message += f"\n📅 Scheduled to publish: {publish_at['local']}"
+                if 'APPLIED' in locals() and schedule_result == 'APPLIED':
+                    notification_message += " (YouTube API scheduled)"
+                elif 'APPLIED' in locals():
+                    notification_message += " (planned time stored, API scheduling not applied)"
+            
             notifier.notify_success(
                 video_id,
                 metadata['title'],
-                f"Metadata optimized via CLI ({'dry-run' if dry_run else 'published'})"
+                notification_message
             )
             
             # Schedule guardrail check if auto-rollback enabled
@@ -384,6 +417,15 @@ Examples:
 
   # Process with custom keywords
   python main.py --url "..." --keywords "python,tutorial,beginners"
+  
+  # Schedule video publication with ISO 8601 format
+  python main.py --url "..." --mode auto --publish-at "2025-11-10T14:00:00+01:00"
+  
+  # Schedule with IANA timezone
+  python main.py --url "..." --mode auto --publish-at "2025-11-10 14:00 Europe/Amsterdam"
+  
+  # Schedule with separate timezone flag
+  python main.py --url "..." --mode auto --publish-at "2025-11-10 14:00" --tz "Europe/Amsterdam"
 
   # Batch process from CSV
   python main.py --batch videos.csv --mode auto
@@ -409,6 +451,10 @@ Examples:
                        help='Enable monetization when processing video (use with --url)')
     parser.add_argument('--dry-run', action='store_true',
                        help='Dry run mode (don\'t actually update YouTube)')
+    parser.add_argument('--publish-at', metavar='DATETIME',
+                       help='Schedule publication datetime (e.g., "2025-11-10T14:00:00+01:00" or "2025-11-10 14:00 Europe/Amsterdam")')
+    parser.add_argument('--tz', metavar='TIMEZONE',
+                       help='IANA timezone for --publish-at if not specified in datetime (e.g., "Europe/Amsterdam")')
     parser.add_argument('--init-db', action='store_true',
                        help='Initialize database')
     parser.add_argument('--version', action='version', version='YouTube SEO Tool v1.0.0')
@@ -491,12 +537,31 @@ Examples:
         if args.keywords:
             keywords = [k.strip() for k in args.keywords.split(',')]
         
+        # Parse publish_at if provided
+        publish_at_context = None
+        if args.publish_at:
+            try:
+                from src.utils.validators import parse_publish_at
+                parsed = parse_publish_at(args.publish_at, args.tz)
+                publish_at_context = {
+                    'utc': parsed.utc_rfc3339,
+                    'tz': parsed.tz,
+                    'local': parsed.local_display,
+                    'utc_dt': parsed.utc,
+                    'local_dt': parsed.local
+                }
+                logger.info(f"📅 Scheduled for: {parsed.local_display}")
+            except ValueError as e:
+                logger.error(str(e))
+                return 2  # Exit code 2 for validation errors
+        
         success = process_single_video(
             video_url=args.url,
             mode=args.mode,
             target_keywords=keywords,
             dry_run=args.dry_run,
-            enable_monetization=args.enable_monetization
+            enable_monetization=args.enable_monetization,
+            publish_at=publish_at_context
         )
         
         return 0 if success else 1

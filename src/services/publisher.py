@@ -35,7 +35,8 @@ class VideoPublisher:
         created_by: str = 'automation',
         reason: str = 'auto_optimization',
         performance_baseline: Optional[Dict[str, Any]] = None,
-        dry_run: bool = False
+        dry_run: bool = False,
+        publish_at: Optional[Dict[str, Any]] = None
     ) -> bool:
         """
         Publish metadata to YouTube and save version to database.
@@ -49,6 +50,7 @@ class VideoPublisher:
             reason: Reason for update
             performance_baseline: Performance metrics at time of change
             dry_run: If True, don't actually update YouTube
+            publish_at: Optional dict with UTC, tz, and local datetime info
         
         Returns:
             True if successful, False otherwise
@@ -119,6 +121,13 @@ class VideoPublisher:
             video.description_current = description
             video.tags_current = tags
             video.last_synced_at = datetime.utcnow()
+            
+            # Store publish_at information if provided
+            if publish_at:
+                video.planned_publish_at_utc = publish_at.get('utc_dt')
+                video.planned_publish_at_tz = publish_at.get('tz')
+                video.planned_publish_at_local = publish_at.get('local')
+                logger.info(f"Stored planned publish time: {publish_at.get('local')}")
             
             # Save new version
             new_version = MetadataVersion(
@@ -249,3 +258,131 @@ class VideoPublisher:
         except Exception as e:
             logger.error(f"Error getting current metadata: {e}")
             return None
+    
+    def schedule_publish(self, video_id: str, publish_at_utc: str) -> str:
+        """
+        Attempt to schedule video publication via YouTube API.
+        
+        Args:
+            video_id: YouTube video ID
+            publish_at_utc: RFC3339 formatted UTC datetime string
+        
+        Returns:
+            Result code: 'APPLIED', 'SKIPPED_ALREADY_PUBLIC', 'FAILED_NOT_ALLOWED', or error message
+        """
+        logger.info(f"Attempting to schedule publication for {video_id} at {publish_at_utc}")
+        
+        try:
+            # Get current video status
+            video_details = self.youtube_client.get_video_details(video_id)
+            if not video_details:
+                logger.error(f"Cannot schedule - video not found: {video_id}")
+                return "ERROR:VIDEO_NOT_FOUND"
+            
+            current_status = video_details.get('status', {})
+            privacy_status = current_status.get('privacyStatus', 'unknown')
+            
+            logger.info(f"Current privacy status: {privacy_status}")
+            
+            # Check if video is already public
+            if privacy_status == 'public':
+                logger.warning("Video is already public - cannot schedule")
+                return "SKIPPED_ALREADY_PUBLIC"
+            
+            # Try to set publishAt in the video status
+            # YouTube API requires TWO separate calls:
+            # 1. First set video to private (if not already)
+            # 2. Then set the publishAt field in a second call
+            try:
+                # Step 1: Set video to private if needed
+                if privacy_status != 'private':
+                    logger.info(f"Setting video to private (was {privacy_status})")
+                    privacy_update = {
+                        'id': video_id,
+                        'status': {
+                            'privacyStatus': 'private',
+                            'selfDeclaredMadeForKids': current_status.get('selfDeclaredMadeForKids', False)
+                        }
+                    }
+                    
+                    self.youtube_client.youtube.videos().update(
+                        part='status',
+                        body=privacy_update
+                    ).execute()
+                    
+                    logger.info("Video set to private")
+                
+                # Step 2: Set the publishAt field in a SEPARATE call
+                logger.info(f"Setting publishAt to {publish_at_utc}")
+                schedule_update = {
+                    'id': video_id,
+                    'status': {
+                        'privacyStatus': 'private',
+                        'publishAt': publish_at_utc,
+                        'selfDeclaredMadeForKids': current_status.get('selfDeclaredMadeForKids', False)
+                    }
+                }
+                
+                response = self.youtube_client.youtube.videos().update(
+                    part='status',
+                    body=schedule_update
+                ).execute()
+                
+                # Verify publishAt was actually set
+                result_publish_at = response.get('status', {}).get('publishAt')
+                if result_publish_at:
+                    logger.info(f"✅ Successfully scheduled video for publication at {result_publish_at}")
+                    logger.info({
+                        "event": "publish_at_processed",
+                        "video_id": video_id,
+                        "planned_utc": publish_at_utc,
+                        "applied": True,
+                        "reason": "APPLIED"
+                    })
+                    return "APPLIED"
+                else:
+                    logger.warning(f"⚠️ publishAt field was not set in response - YouTube may have rejected it")
+                    logger.info({
+                        "event": "publish_at_processed",
+                        "video_id": video_id,
+                        "planned_utc": publish_at_utc,
+                        "applied": False,
+                        "reason": "FAILED_NOT_SET_IN_RESPONSE"
+                    })
+                    return "FAILED_NOT_SET_IN_RESPONSE"
+            
+            except Exception as api_error:
+                error_msg = str(api_error)
+                logger.error(f"YouTube API rejected scheduling: {error_msg}")
+                
+                # Check for specific error conditions
+                if '400' in error_msg or 'invalid' in error_msg.lower():
+                    logger.info({
+                        "event": "publish_at_processed",
+                        "video_id": video_id,
+                        "planned_utc": publish_at_utc,
+                        "applied": False,
+                        "reason": "FAILED_NOT_ALLOWED"
+                    })
+                    return "FAILED_NOT_ALLOWED"
+                
+                logger.info({
+                    "event": "publish_at_processed",
+                    "video_id": video_id,
+                    "planned_utc": publish_at_utc,
+                    "applied": False,
+                    "reason": f"ERROR:{error_msg[:50]}"
+                })
+                
+                return f"ERROR:{error_msg}"
+        
+        except Exception as e:
+            logger.error(f"Error scheduling publication: {e}")
+            logger.info({
+                "event": "publish_at_processed",
+                "video_id": video_id,
+                "planned_utc": publish_at_utc,
+                "applied": False,
+                "reason": f"ERROR:{str(e)[:50]}"
+            })
+            return f"ERROR:{str(e)}"

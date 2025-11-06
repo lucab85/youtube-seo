@@ -1,12 +1,24 @@
 """Input validation and data sanitization utilities."""
 
 import re
-from typing import Dict, Optional, Tuple
+from typing import Dict, Optional, Tuple, NamedTuple
 from urllib.parse import urlparse, parse_qs
+from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+from dateutil import parser as dateutil_parser
 from .config import Config
 from .logger import get_logger
 
 logger = get_logger('validators')
+
+
+class PublishAt(NamedTuple):
+    """Parsed and validated publication datetime."""
+    utc: datetime  # UTC datetime object
+    tz: str  # IANA timezone name
+    local: datetime  # Local datetime with timezone
+    utc_rfc3339: str  # RFC3339 formatted string for API
+    local_display: str  # Human-readable local time
 
 
 def validate_youtube_url(url: str) -> Tuple[bool, Optional[str]]:
@@ -329,6 +341,140 @@ def parse_tags_input(tags_input: str) -> list:
         logger.info(f"Filtered tags from {len(sanitized_tags)} to {len(unique_tags)} (total {total_length} chars)")
     
     return unique_tags
+
+
+def parse_publish_at(dt_str: str, tz_hint: Optional[str] = None) -> PublishAt:
+    """
+    Parse and validate publication datetime with timezone handling.
+    
+    Args:
+        dt_str: Datetime string in various formats (ISO 8601, natural language, etc.)
+        tz_hint: Optional IANA timezone hint if dt_str lacks timezone info
+    
+    Returns:
+        PublishAt object with normalized UTC and local times
+    
+    Raises:
+        ValueError: If datetime is invalid, in the past, or timezone is ambiguous
+    
+    Examples:
+        >>> parse_publish_at("2025-11-10T14:00:00+01:00")
+        >>> parse_publish_at("2025-11-10 14:00", tz_hint="Europe/Amsterdam")
+        >>> parse_publish_at("Nov 10, 2025 2pm CET")
+    """
+    import tzlocal
+    
+    if not dt_str or not dt_str.strip():
+        raise ValueError(
+            "Invalid --publish-at value. Try ISO 8601 (e.g., 2025-11-10T14:00:00+01:00) or supply --tz Europe/Amsterdam."
+        )
+    
+    dt_str = dt_str.strip()
+    parsed_dt = None
+    tz_name = None
+    
+    # Try to parse the datetime string
+    try:
+        # First, try dateutil parser which handles many formats
+        parsed_dt = dateutil_parser.parse(dt_str, fuzzy=False)
+        
+        # Check if timezone info is present
+        if parsed_dt.tzinfo is None:
+            # No timezone in string, need to use hint or system default
+            if tz_hint:
+                # Validate IANA timezone
+                try:
+                    tz = ZoneInfo(tz_hint)
+                    tz_name = tz_hint
+                except ZoneInfoNotFoundError:
+                    raise ValueError(
+                        f"--tz must be a valid IANA timezone (e.g., Europe/Amsterdam). Got: {tz_hint}"
+                    )
+                
+                # Check for DST ambiguity
+                try:
+                    parsed_dt = parsed_dt.replace(tzinfo=tz)
+                except Exception as e:
+                    if "ambiguous" in str(e).lower():
+                        raise ValueError(
+                            "Ambiguous local time due to DST. Specify an explicit offset (e.g., +02:00) or an IANA timezone."
+                        )
+                    raise
+            else:
+                # Use system local timezone and warn
+                try:
+                    local_tz = tzlocal.get_localzone()
+                    tz_name = str(local_tz)
+                    parsed_dt = parsed_dt.replace(tzinfo=local_tz)
+                    logger.warning(
+                        f"No timezone specified in --publish-at. Using system timezone: {tz_name}"
+                    )
+                except Exception as e:
+                    raise ValueError(
+                        "Invalid --publish-at value. Try ISO 8601 (e.g., 2025-11-10T14:00:00+01:00) or supply --tz Europe/Amsterdam."
+                    )
+        else:
+            # Timezone is in the string, extract the name
+            if hasattr(parsed_dt.tzinfo, 'key'):
+                tz_name = parsed_dt.tzinfo.key
+            elif hasattr(parsed_dt.tzinfo, 'zone'):
+                tz_name = parsed_dt.tzinfo.zone
+            else:
+                # For fixed offsets, create a descriptive name
+                offset = parsed_dt.utcoffset()
+                if offset:
+                    hours = int(offset.total_seconds() // 3600)
+                    minutes = int((offset.total_seconds() % 3600) // 60)
+                    tz_name = f"UTC{hours:+03d}:{minutes:02d}"
+                else:
+                    tz_name = "UTC"
+    
+    except (ValueError, TypeError, OverflowError) as e:
+        error_msg = str(e)
+        if "ambiguous" in error_msg.lower():
+            raise ValueError(
+                "Ambiguous local time due to DST. Specify an explicit offset (e.g., +02:00) or an IANA timezone."
+            )
+        raise ValueError(
+            f"Invalid --publish-at value. Try ISO 8601 (e.g., 2025-11-10T14:00:00+01:00) or supply --tz Europe/Amsterdam. Error: {error_msg}"
+        )
+    
+    if not parsed_dt:
+        raise ValueError(
+            "Invalid --publish-at value. Try ISO 8601 (e.g., 2025-11-10T14:00:00+01:00) or supply --tz Europe/Amsterdam."
+        )
+    
+    # Convert to UTC for validation
+    utc_dt = parsed_dt.astimezone(timezone.utc)
+    now_utc = datetime.now(timezone.utc)
+    
+    # Enforce future-time rule (at least 5 minutes in the future)
+    min_future = now_utc + timedelta(minutes=5)
+    if utc_dt < min_future:
+        raise ValueError(
+            "--publish-at must be at least 5 minutes in the future."
+        )
+    
+    # Format RFC3339 for YouTube API
+    utc_rfc3339 = utc_dt.strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3] + 'Z'
+    
+    # Create human-readable local display
+    local_display = parsed_dt.strftime('%Y-%m-%d %H:%M %Z')
+    if not local_display.endswith(tz_name):
+        local_display = f"{parsed_dt.strftime('%Y-%m-%d %H:%M')} {tz_name}"
+    
+    logger.info(
+        f"Parsed publish time: {local_display} (UTC: {utc_rfc3339})"
+    )
+    
+    return PublishAt(
+        utc=utc_dt,
+        tz=tz_name,
+        local=parsed_dt,
+        utc_rfc3339=utc_rfc3339,
+        local_display=local_display
+    )
+
 
 
 def format_tags_output(tags: list) -> str:

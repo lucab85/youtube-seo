@@ -21,6 +21,11 @@ class Video(Base):
     lang = Column(String(10), default='en')
     category_id = Column(String(10), nullable=True)
     
+    # Scheduled publishing
+    planned_publish_at_utc = Column(DateTime, nullable=True)
+    planned_publish_at_tz = Column(String(50), nullable=True)
+    planned_publish_at_local = Column(String(100), nullable=True)
+    
     # Timestamps
     last_synced_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, server_default=func.now())
@@ -39,6 +44,9 @@ class Video(Base):
             'tags': self.tags_current,
             'lang': self.lang,
             'category_id': self.category_id,
+            'planned_publish_at_utc': self.planned_publish_at_utc.isoformat() if self.planned_publish_at_utc else None,
+            'planned_publish_at_tz': self.planned_publish_at_tz,
+            'planned_publish_at_local': self.planned_publish_at_local,
             'last_synced_at': self.last_synced_at.isoformat() if self.last_synced_at else None,
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None,

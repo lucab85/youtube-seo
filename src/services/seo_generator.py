@@ -42,7 +42,8 @@ class SEOGenerator:
         channel_description: Optional[str] = None,
         target_keywords: Optional[List[str]] = None,
         brand_config: Optional[Dict[str, Any]] = None,
-        policy_config: Optional[Dict[str, Any]] = None
+        policy_config: Optional[Dict[str, Any]] = None,
+        context: Optional[Dict[str, Any]] = None
     ) -> Dict[str, str]:
         """
         Generate optimized title, description, and tags.
@@ -54,6 +55,7 @@ class SEOGenerator:
             target_keywords: List of target keywords
             brand_config: Brand configuration dict
             policy_config: Policy configuration dict
+            context: Additional context (e.g., publish_at info)
         
         Returns:
             Dict with 'title', 'description', 'tags' keys
@@ -67,7 +69,8 @@ class SEOGenerator:
             channel_description=channel_description,
             target_keywords=target_keywords,
             brand_config=brand_config,
-            policy_config=policy_config
+            policy_config=policy_config,
+            context=context
         )
         
         # Generate with LLM
@@ -108,7 +111,8 @@ class SEOGenerator:
         channel_description: Optional[str],
         target_keywords: Optional[List[str]],
         brand_config: Optional[Dict[str, Any]],
-        policy_config: Optional[Dict[str, Any]]
+        policy_config: Optional[Dict[str, Any]],
+        context: Optional[Dict[str, Any]] = None
     ) -> str:
         """Build comprehensive prompt for LLM."""
         
@@ -127,6 +131,12 @@ class SEOGenerator:
         required_disclosures = []
         if policy_config:
             required_disclosures = policy_config.get('required_disclosures', [])
+        
+        # Extract publish_at if available
+        publish_at_info = ""
+        if context and 'publish_at' in context:
+            pub_at = context['publish_at']
+            publish_at_info = f"\n🎬 SCHEDULED PREMIERE: This video will premiere on {pub_at.get('local', 'a scheduled date')}."
         
         # Primary keyword - extract from video title if no keywords provided
         if target_keywords:
@@ -178,6 +188,14 @@ CHANNEL CONTEXT:
             prompt += f"""
 CURRENT TITLE (for context):
 {video_title}
+"""
+
+        # Add scheduled publish info if available
+        if publish_at_info:
+            prompt += f"""
+IMPORTANT - SCHEDULED PUBLICATION:
+{publish_at_info}
+Include this premiere information naturally in the description.
 """
 
         prompt += """
