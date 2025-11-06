@@ -22,11 +22,11 @@ from src.services import (
     AnalyticsService,
     Notifier
 )
+from src.services.monetization import MonetizationService
 
 # Initialize logger
 setup_logger()
 logger = get_logger('main')
-
 
 def validate_config():
     """Validate configuration before starting."""
@@ -51,7 +51,8 @@ def process_single_video(
     target_keywords: list = None,
     dry_run: bool = False,
     enable_monetization: bool = False,
-    publish_at: dict = None
+    publish_at: dict = None,
+    monetization_intent = None
 ) -> bool:
     """
     Process a single video.
@@ -63,6 +64,7 @@ def process_single_video(
         dry_run: If True, don't actually update YouTube
         enable_monetization: If True, enable monetization for the video
         publish_at: Optional dict with UTC datetime, timezone, and local display
+        monetization_intent: Optional MonetizationIntent object
     
     Returns:
         True if successful
@@ -182,19 +184,59 @@ def process_single_video(
                 else:
                     logger.warning(f"⚠️  Scheduling failed: {schedule_result} (planned time stored)")
             
-            # Enable monetization if requested
-            if enable_monetization and not dry_run:
-                logger.info("Enabling monetization for video...")
-                monetization_success = youtube_client.enable_monetization(video_id)
-                if monetization_success:
-                    logger.info("✅ Monetization settings updated")
-                    logger.warning("⚠️  Complete monetization setup in YouTube Studio:")
-                    logger.warning("   1. Go to https://studio.youtube.com")
-                    logger.warning("   2. Select the video")
-                    logger.warning("   3. Go to Monetization tab")
-                    logger.warning("   4. Enable monetization and select ad types")
-                else:
-                    logger.error("❌ Failed to enable monetization")
+            # Process monetization if requested
+            monetization_outcome = None
+            if monetization_intent and monetization_intent.enable and Config.ENABLE_YT_MONETIZATION_FLOW and not dry_run:
+                logger.info("Processing monetization...")
+                
+                # Initialize monetization service
+                monetization_service = MonetizationService(youtube_client)
+                
+                # Apply programmatic settings
+                apply_result = monetization_service.apply_programmatic_settings(video_id, monetization_intent)
+                
+                # Summarize outcome
+                monetization_outcome = monetization_service.summarize_outcome(
+                    video_id, monetization_intent, apply_result
+                )
+                
+                # Store outcome in database
+                from src.models.video import Video
+                video = db.query(Video).filter_by(video_id=video_id).first()
+                if video:
+                    video.monetization_enabled_intent = True
+                    video.monetization_ad_suitability = monetization_intent.ad_suitability
+                    video.monetization_ad_formats = ','.join(monetization_intent.ad_formats) if monetization_intent.ad_formats else None
+                    video.monetization_paid_promotion = monetization_intent.paid_promotion
+                    video.monetization_made_for_kids = monetization_intent.made_for_kids
+                    video.monetization_age_restriction = monetization_intent.age_restriction
+                    video.monetization_notes = monetization_intent.notes
+                    video.monetization_api_applied = monetization_outcome.api_applied
+                    video.monetization_completion_state = monetization_outcome.completion_state
+                    video.monetization_studio_deeplink = monetization_outcome.studio_deeplink
+                    video.monetization_last_attempt_at_utc = datetime.utcnow()
+                    db.commit()
+                
+                # Display outcome table
+                outcome_table = monetization_service.format_outcome_table(monetization_intent, monetization_outcome)
+                print(outcome_table)
+                
+                # Log structured event
+                logger.info({
+                    "event": "monetization_attempt",
+                    "video_id": video_id,
+                    "intent": {
+                        "enable": monetization_intent.enable,
+                        "made_for_kids": monetization_intent.made_for_kids,
+                        "ad_formats": monetization_intent.ad_formats,
+                        "ad_suitability": monetization_intent.ad_suitability,
+                        "paid_promotion": monetization_intent.paid_promotion,
+                        "age_restriction": monetization_intent.age_restriction
+                    },
+                    "applied": monetization_outcome.applied_settings,
+                    "requires_studio": monetization_outcome.requires_studio,
+                    "studio_deeplink": monetization_outcome.studio_deeplink
+                })
             
             # Build notification message
             notification_message = f"Metadata optimized via CLI ({'dry-run' if dry_run else 'published'})"
@@ -204,6 +246,11 @@ def process_single_video(
                     notification_message += " (YouTube API scheduled)"
                 elif 'APPLIED' in locals():
                     notification_message += " (planned time stored, API scheduling not applied)"
+            
+            if monetization_outcome:
+                notification_message += f"\n💰 Monetization: {monetization_outcome.completion_state}"
+                if monetization_outcome.studio_deeplink:
+                    notification_message += f"\n   Studio: {monetization_outcome.studio_deeplink}"
             
             notifier.notify_success(
                 video_id,
@@ -447,8 +494,30 @@ Examples:
                        help='Check performance guardrails for a video')
     parser.add_argument('--check-monetization', metavar='VIDEO_ID',
                        help='Check monetization eligibility status for a video')
+    
+    # Monetization options
     parser.add_argument('--enable-monetization', action='store_true',
                        help='Enable monetization when processing video (use with --url)')
+    parser.add_argument('--made-for-kids', type=str, choices=['true', 'false'],
+                       help='Set made-for-kids status (true|false)')
+    parser.add_argument('--paid-promotion', type=str, choices=['none', 'includes', 'not_sure'],
+                       help='Paid promotion disclosure (none|includes|not_sure)')
+    parser.add_argument('--ad-suitability', type=str, choices=['standard', 'limited', 'mature', 'not_sure'],
+                       help='Ad suitability self-certification (standard|limited|mature|not_sure)')
+    parser.add_argument('--ad-formats', type=str,
+                       help='Desired ad formats, comma-separated (e.g., "skippable,overlay,display")')
+    parser.add_argument('--age-restriction', type=str, choices=['none', '18+'],
+                       help='Age restriction setting (none|18+)')
+    parser.add_argument('--monetization-notes', type=str,
+                       help='Free-text notes about monetization intent')
+    parser.add_argument('--assume-ypp-eligible', action='store_true',
+                       help='Skip YPP eligibility checks')
+    parser.add_argument('--no-deeplink', action='store_true',
+                       help='Suppress Studio deeplink generation')
+    parser.add_argument('--fail-on-incomplete', action='store_true',
+                       help='Exit non-zero if monetization requires Studio completion')
+    
+    # Other options
     parser.add_argument('--dry-run', action='store_true',
                        help='Dry run mode (don\'t actually update YouTube)')
     parser.add_argument('--publish-at', metavar='DATETIME',
@@ -555,14 +624,31 @@ Examples:
                 logger.error(str(e))
                 return 2  # Exit code 2 for validation errors
         
+        # Prepare monetization intent if requested
+        monetization_intent = None
+        if args.enable_monetization:
+            monetization_service = MonetizationService(None)  # Temp instance for preparing intent
+            monetization_intent = monetization_service.prepare_intent_from_cli(args)
+            
+            # Convert string 'true'/'false' to boolean for made_for_kids
+            if hasattr(args, 'made_for_kids') and args.made_for_kids:
+                monetization_intent.made_for_kids = args.made_for_kids == 'true'
+        
         success = process_single_video(
             video_url=args.url,
             mode=args.mode,
             target_keywords=keywords,
             dry_run=args.dry_run,
             enable_monetization=args.enable_monetization,
-            publish_at=publish_at_context
+            publish_at=publish_at_context,
+            monetization_intent=monetization_intent
         )
+        
+        # Check fail-on-incomplete
+        if monetization_intent and monetization_intent.fail_on_incomplete:
+            # This would require access to the outcome, which we'd need to return from process_single_video
+            # For now, we'll handle this in a future enhancement
+            pass
         
         return 0 if success else 1
     

@@ -488,3 +488,86 @@ def format_tags_output(tags: list) -> str:
         Comma-separated tag string
     """
     return ', '.join(tags)
+
+
+def validate_ad_suitability(value: str) -> Tuple[bool, Optional[str]]:
+    """
+    Validate ad suitability enum value.
+    
+    Args:
+        value: Ad suitability string
+    
+    Returns:
+        Tuple of (is_valid, normalized_value or error_message)
+    """
+    valid_values = ['standard', 'limited', 'mature', 'not_sure']
+    normalized = value.lower().strip()
+    
+    if normalized in valid_values:
+        return True, normalized
+    else:
+        return False, f"Invalid ad suitability: '{value}'. Must be one of: {', '.join(valid_values)}"
+
+
+def validate_paid_promotion(value: str) -> Tuple[bool, Optional[str]]:
+    """
+    Validate paid promotion enum value.
+    
+    Args:
+        value: Paid promotion string
+    
+    Returns:
+        Tuple of (is_valid, normalized_value or error_message)
+    """
+    valid_values = ['none', 'includes', 'not_sure']
+    normalized = value.lower().strip()
+    
+    if normalized in valid_values:
+        return True, normalized
+    else:
+        return False, f"Invalid paid promotion: '{value}'. Must be one of: {', '.join(valid_values)}"
+
+
+def validate_age_restriction(value: str) -> Tuple[bool, Optional[str]]:
+    """
+    Validate age restriction enum value.
+    
+    Args:
+        value: Age restriction string
+    
+    Returns:
+        Tuple of (is_valid, normalized_value or error_message)
+    """
+    valid_values = ['none', '18+']
+    normalized = value.lower().strip()
+    
+    if normalized in valid_values:
+        return True, normalized
+    else:
+        return False, f"Invalid age restriction: '{value}'. Must be one of: {', '.join(valid_values)}"
+
+
+def validate_ad_formats(value: str) -> Tuple[bool, Optional[str]]:
+    """
+    Validate and normalize ad formats CSV string.
+    
+    Args:
+        value: Comma-separated ad formats
+    
+    Returns:
+        Tuple of (is_valid, normalized_csv or error_message)
+    """
+    valid_formats = ['skippable', 'non_skippable', 'overlay', 'display', 'bumper', 'mid_roll']
+    
+    # Parse CSV
+    formats = [f.strip().lower() for f in value.split(',')]
+    
+    # Validate each format
+    invalid = [f for f in formats if f not in valid_formats]
+    
+    if invalid:
+        return False, f"Invalid ad format(s): {', '.join(invalid)}. Valid: {', '.join(valid_formats)}"
+    
+    # Return normalized CSV
+    return True, ','.join(formats)
+
