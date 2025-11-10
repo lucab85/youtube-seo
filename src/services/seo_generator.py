@@ -138,6 +138,11 @@ class SEOGenerator:
             pub_at = context['publish_at']
             publish_at_info = f"\n🎬 SCHEDULED PREMIERE: This video will premiere on {pub_at.get('local', 'a scheduled date')}."
         
+        # Extract video duration if available
+        video_duration = ""
+        if context and 'video_duration_display' in context:
+            video_duration = context['video_duration_display']
+        
         # Primary keyword - extract from video title if no keywords provided
         if target_keywords:
             primary_keyword = target_keywords[0]
@@ -229,9 +234,13 @@ DESCRIPTION STRUCTURE WITH PROPER FORMATTING:
 
 4. TIMESTAMPS/CHAPTERS (REQUIRED):
    Extract from transcript with single line breaks between each:
+   CRITICAL: All timestamps MUST be within the actual video duration
+   Video Duration: {video_duration}
+   Format with single line breaks:
    0:00 Introduction
    2:15 Topic 1
    5:30 Topic 2
+   IMPORTANT: Do NOT create timestamps beyond {video_duration}
    [Double line break]
 
 5. Detailed Topics Covered (400-800 chars): In-depth explanation of each major topic discussed
@@ -317,19 +326,49 @@ Now generate the optimized metadata as JSON:
     def _generate_with_openai(self, prompt: str) -> str:
         """Generate content using OpenAI API."""
         try:
-            response = openai.chat.completions.create(
-                model=self.model,
-                messages=[
+            # Check if model supports max_tokens or max_completion_tokens
+            # Newer models (gpt-5+, gpt-4.1+, o-series) use max_completion_tokens
+            uses_completion_tokens = any(prefix in self.model.lower() for prefix in [
+                'gpt-5', 'gpt-4.1', 'o1', 'o3', 'o4'
+            ])
+            
+            # Some models (gpt-5-nano, o-series) only support temperature=1
+            supports_custom_temperature = not any(prefix in self.model.lower() for prefix in [
+                'gpt-5-nano', 'o1', 'o3', 'o4'
+            ])
+            
+            # Some models don't support JSON mode
+            supports_json_mode = not any(prefix in self.model.lower() for prefix in [
+                'gpt-5-nano', 'o1', 'o3', 'o4'
+            ])
+            
+            params = {
+                "model": self.model,
+                "messages": [
                     {"role": "system", "content": "You are an expert YouTube SEO specialist. Always respond with valid JSON."},
                     {"role": "user", "content": prompt}
-                ],
-                temperature=self.temperature,
-                max_tokens=2000,
-                response_format={"type": "json_object"}
-            )
+                ]
+            }
+            
+            # Add JSON mode if supported
+            if supports_json_mode:
+                params["response_format"] = {"type": "json_object"}
+            
+            # Add temperature if supported
+            if supports_custom_temperature:
+                params["temperature"] = self.temperature
+            
+            # Use appropriate token parameter
+            if uses_completion_tokens:
+                params["max_completion_tokens"] = 2000
+            else:
+                params["max_tokens"] = 2000
+            
+            response = openai.chat.completions.create(**params)
             
             content = response.choices[0].message.content
             logger.info(f"Generated content with OpenAI (tokens: {response.usage.total_tokens})")
+            logger.debug(f"OpenAI response content (first 500 chars): {content[:500] if content else 'EMPTY'}")
             return content
         
         except Exception as e:

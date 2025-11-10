@@ -33,6 +33,9 @@ class Config:
     GOOGLE_AI_API_KEY = os.getenv('GOOGLE_AI_API_KEY', '')
     GOOGLE_AI_MODEL = os.getenv('GOOGLE_AI_MODEL', 'gemini-pro')
     
+    # LLM Provider Selection (override auto-detection)
+    LLM_PROVIDER = os.getenv('LLM_PROVIDER', '')  # 'openai', 'anthropic', 'google', or empty for auto-detect
+    
     # Database
     DATABASE_URL = os.getenv('DATABASE_URL', 'sqlite:///youtube_seo.db')
     
@@ -112,7 +115,15 @@ class Config:
     @classmethod
     def get_llm_provider(cls) -> str:
         """Determine which LLM provider to use."""
-        # Check for valid API keys (not placeholder values)
+        # Check for explicit provider override
+        if cls.LLM_PROVIDER:
+            provider = cls.LLM_PROVIDER.lower()
+            if provider in ['openai', 'anthropic', 'google']:
+                return provider
+            else:
+                raise ValueError(f"Invalid LLM_PROVIDER: {cls.LLM_PROVIDER}. Must be 'openai', 'anthropic', or 'google'")
+        
+        # Auto-detect based on valid API keys (not placeholder values)
         valid_openai = cls.OPENAI_API_KEY and not cls.OPENAI_API_KEY.startswith('your_')
         valid_anthropic = cls.ANTHROPIC_API_KEY and not cls.ANTHROPIC_API_KEY.startswith('your_')
         valid_google = cls.GOOGLE_AI_API_KEY and cls.GOOGLE_AI_API_KEY.startswith('AIza')

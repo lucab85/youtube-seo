@@ -102,8 +102,15 @@ def process_single_video(
         
         current_title = video_details['snippet']['title']
         channel_desc = video_details['snippet'].get('channelTitle', '')
+        video_duration_iso = video_details.get('contentDetails', {}).get('duration', 'PT0S')
+        
+        # Parse video duration
+        from src.utils.validators import parse_youtube_duration, format_seconds_to_timestamp
+        video_duration_seconds = parse_youtube_duration(video_duration_iso)
+        video_duration_display = format_seconds_to_timestamp(video_duration_seconds)
         
         logger.info(f"Processing: {current_title}")
+        logger.info(f"Video duration: {video_duration_display} ({video_duration_seconds} seconds)")
         
         # Get transcript
         transcript_data = transcript_service.get_transcript(video_id)
@@ -121,8 +128,11 @@ def process_single_video(
         # Generate SEO metadata
         logger.info("Generating SEO metadata...")
         
-        # Prepare context with publish_at if available
-        generation_context = {}
+        # Prepare context with publish_at and video duration
+        generation_context = {
+            'video_duration_seconds': video_duration_seconds,
+            'video_duration_display': video_duration_display
+        }
         if publish_at:
             generation_context['publish_at'] = publish_at
         

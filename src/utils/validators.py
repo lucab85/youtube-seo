@@ -571,3 +571,53 @@ def validate_ad_formats(value: str) -> Tuple[bool, Optional[str]]:
     # Return normalized CSV
     return True, ','.join(formats)
 
+
+def parse_youtube_duration(duration_iso: str) -> int:
+    """
+    Parse YouTube's ISO 8601 duration format to seconds.
+    
+    Examples:
+        PT15M51S -> 951 seconds (15 minutes 51 seconds)
+        PT1H2M10S -> 3730 seconds (1 hour 2 minutes 10 seconds)
+        PT42S -> 42 seconds
+    
+    Args:
+        duration_iso: ISO 8601 duration string (e.g., 'PT15M51S')
+    
+    Returns:
+        Duration in seconds
+    """
+    import re
+    
+    # Extract hours, minutes, seconds
+    hours_match = re.search(r'(\d+)H', duration_iso)
+    minutes_match = re.search(r'(\d+)M', duration_iso)
+    seconds_match = re.search(r'(\d+)S', duration_iso)
+    
+    hours = int(hours_match.group(1)) if hours_match else 0
+    minutes = int(minutes_match.group(1)) if minutes_match else 0
+    seconds = int(seconds_match.group(1)) if seconds_match else 0
+    
+    return hours * 3600 + minutes * 60 + seconds
+
+
+def format_seconds_to_timestamp(seconds: int) -> str:
+    """
+    Convert seconds to HH:MM:SS or MM:SS timestamp format.
+    
+    Args:
+        seconds: Total seconds
+    
+    Returns:
+        Formatted timestamp string
+    """
+    hours = seconds // 3600
+    minutes = (seconds % 3600) // 60
+    secs = seconds % 60
+    
+    if hours > 0:
+        return f"{hours}:{minutes:02d}:{secs:02d}"
+    else:
+        return f"{minutes}:{secs:02d}"
+
+

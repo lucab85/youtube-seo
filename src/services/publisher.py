@@ -330,14 +330,22 @@ class VideoPublisher:
                 
                 # Verify publishAt was actually set
                 result_publish_at = response.get('status', {}).get('publishAt')
+                result_privacy = response.get('status', {}).get('privacyStatus')
+                
+                logger.info(f"API Response - privacyStatus: {result_privacy}, publishAt: {result_publish_at}")
+                
                 if result_publish_at:
                     logger.info(f"✅ Successfully scheduled video for publication at {result_publish_at}")
+                    logger.info(f"📅 Video status: Private with scheduled publish time")
+                    logger.info(f"💡 In YouTube Studio, this will show as 'Scheduled' (not 'Private')")
                     logger.info({
                         "event": "publish_at_processed",
                         "video_id": video_id,
                         "planned_utc": publish_at_utc,
                         "applied": True,
-                        "reason": "APPLIED"
+                        "reason": "APPLIED",
+                        "privacy_status": result_privacy,
+                        "publish_at": result_publish_at
                     })
                     return "APPLIED"
                 else:
