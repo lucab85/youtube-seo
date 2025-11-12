@@ -24,32 +24,50 @@ class PublishAt(NamedTuple):
 def validate_youtube_url(url: str) -> Tuple[bool, Optional[str]]:
     """
     Validate YouTube URL and extract video ID.
+    Supports:
+      - https://www.youtube.com/watch?v=VIDEO_ID
+      - https://youtu.be/VIDEO_ID
+      - https://www.youtube.com/shorts/VIDEO_ID
+      - https://www.youtube.com/embed/VIDEO_ID
+      - With/without www, m., extra params, timestamps, etc.
     
     Returns:
         Tuple of (is_valid, video_id or error_message)
     """
     try:
         parsed = urlparse(url)
+        hostname = parsed.hostname or ''
         
-        # Standard watch URLs
-        if parsed.hostname in ['www.youtube.com', 'youtube.com', 'm.youtube.com']:
+        # Normalize hostname (remove www., m.)
+        hostname_clean = hostname.replace('www.', '').replace('m.', '')
+        
+        # 1. Standard watch URLs (youtube.com/watch?v=...)
+        if hostname_clean == 'youtube.com':
             if parsed.path == '/watch':
                 video_id = parse_qs(parsed.query).get('v', [None])[0]
-                if video_id:
+                if video_id and len(video_id) == 11:  # YouTube video IDs are always 11 chars
                     return True, video_id
-        
-        # Short URLs
-        elif parsed.hostname in ['youtu.be']:
-            video_id = parsed.path.lstrip('/')
-            if video_id:
-                return True, video_id
-        
-        # Embed URLs
-        elif parsed.hostname in ['www.youtube.com', 'youtube.com']:
+            
+            # 2. Shorts URLs (youtube.com/shorts/VIDEO_ID)
+            if parsed.path.startswith('/shorts/'):
+                parts = parsed.path.split('/')
+                video_id = parts[2] if len(parts) > 2 else None
+                if video_id and len(video_id) == 11:
+                    logger.info(f"Detected Shorts URL, normalized to video ID: {video_id}")
+                    return True, video_id
+            
+            # 3. Embed URLs (youtube.com/embed/VIDEO_ID)
             if parsed.path.startswith('/embed/'):
-                video_id = parsed.path.split('/')[2]
-                if video_id:
+                parts = parsed.path.split('/')
+                video_id = parts[2] if len(parts) > 2 else None
+                if video_id and len(video_id) == 11:
                     return True, video_id
+        
+        # 4. Short URLs (youtu.be/VIDEO_ID)
+        elif hostname_clean == 'youtu.be':
+            video_id = parsed.path.lstrip('/').split('/')[0]  # Handle timestamps like /VIDEO_ID?t=123
+            if video_id and len(video_id) == 11:
+                return True, video_id
         
         return False, f"Invalid YouTube URL format: {url}"
     
@@ -65,6 +83,33 @@ def extract_video_id(url: str) -> Optional[str]:
         Video ID or None if invalid
     """
     is_valid, result = validate_youtube_url(url)
+    return result if is_valid else None
+
+
+def normalize_youtube_url(url: str) -> Tuple[str, str]:
+    """
+    Normalize any YouTube URL to canonical watch URL and extract video ID.
+    Supports:
+      - https://www.youtube.com/watch?v=VIDEO_ID
+      - https://youtu.be/VIDEO_ID
+      - https://www.youtube.com/shorts/VIDEO_ID
+      - https://www.youtube.com/embed/VIDEO_ID
+    
+    Returns:
+        Tuple of (video_id, canonical_url)
+    
+    Raises:
+        ValueError: If URL is invalid or video ID cannot be extracted
+    """
+    is_valid, result = validate_youtube_url(url)
+    
+    if not is_valid:
+        raise ValueError(result)  # result contains error message
+    
+    video_id = result
+    canonical_url = f"https://www.youtube.com/watch?v={video_id}"
+    
+    return video_id, canonical_url
     if is_valid:
         return result
     else:

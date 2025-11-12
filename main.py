@@ -58,7 +58,7 @@ def process_single_video(
     Process a single video.
     
     Args:
-        video_url: YouTube video URL
+        video_url: YouTube video URL (supports watch, shorts, youtu.be, embed formats)
         mode: 'auto' (publish immediately) or 'preview' (show only)
         target_keywords: Optional list of target keywords
         dry_run: If True, don't actually update YouTube
@@ -69,12 +69,13 @@ def process_single_video(
     Returns:
         True if successful
     """
-    logger.info(f"Processing video: {video_url}")
-    
-    # Extract video ID
-    video_id = extract_video_id(video_url)
-    if not video_id:
-        logger.error(f"Invalid YouTube URL: {video_url}")
+    # Normalize URL to canonical format and extract video ID
+    try:
+        from src.utils.validators import normalize_youtube_url
+        video_id, canonical_url = normalize_youtube_url(video_url)
+        logger.info(f"Processing video: {canonical_url} (ID: {video_id})")
+    except ValueError as e:
+        logger.error(f"Invalid YouTube URL: {e}")
         return False
     
     try:
