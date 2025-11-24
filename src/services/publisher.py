@@ -263,6 +263,10 @@ class VideoPublisher:
         """
         Attempt to schedule video publication via YouTube API.
         
+        IMPORTANT: YouTube's publishAt field ONLY works when video is 'private' or 'unlisted'.
+        The video will show as "Scheduled" in YouTube Studio and automatically become public
+        at the specified time.
+        
         Args:
             video_id: YouTube video ID
             publish_at_utc: RFC3339 formatted UTC datetime string
@@ -286,38 +290,29 @@ class VideoPublisher:
             
             # Check if video is already public
             if privacy_status == 'public':
-                logger.warning("Video is already public - cannot schedule")
-                return "SKIPPED_ALREADY_PUBLIC"
+                # Check if we should force conversion to private for scheduling
+                if Config.FORCE_PRIVATE_FOR_SCHEDULING:
+                    logger.warning("⚠️  Video is public, but FORCE_PRIVATE_FOR_SCHEDULING is enabled")
+                    logger.warning("📝 Converting video to private to enable scheduling...")
+                    # Continue to scheduling logic below
+                else:
+                    logger.warning("⚠️  Video is already public - cannot schedule without making it private first")
+                    logger.warning("💡 Planned publish time stored in database, but not applied to YouTube")
+                    logger.warning("💡 To schedule a public video:")
+                    logger.warning("   1. Set FORCE_PRIVATE_FOR_SCHEDULING=true in .env, OR")
+                    logger.warning("   2. Manually change video to private/unlisted in YouTube Studio first")
+                    return "SKIPPED_ALREADY_PUBLIC"
             
             # Try to set publishAt in the video status
-            # YouTube API requires TWO separate calls:
-            # 1. First set video to private (if not already)
-            # 2. Then set the publishAt field in a second call
+            # YouTube API requirement: Video MUST be private/unlisted to use publishAt
+            # When publishAt is set, YouTube Studio shows status as "Scheduled" (not "Private")
             try:
-                # Step 1: Set video to private if needed
-                if privacy_status != 'private':
-                    logger.info(f"Setting video to private (was {privacy_status})")
-                    privacy_update = {
-                        'id': video_id,
-                        'status': {
-                            'privacyStatus': 'private',
-                            'selfDeclaredMadeForKids': current_status.get('selfDeclaredMadeForKids', False)
-                        }
-                    }
-                    
-                    self.youtube_client.youtube.videos().update(
-                        part='status',
-                        body=privacy_update
-                    ).execute()
-                    
-                    logger.info("Video set to private")
-                
-                # Step 2: Set the publishAt field in a SEPARATE call
-                logger.info(f"Setting publishAt to {publish_at_utc}")
+                # Set the publishAt field (ensure video is private)
+                logger.info(f"Setting publishAt to {publish_at_utc} (video will show as 'Scheduled' in YouTube Studio)")
                 schedule_update = {
                     'id': video_id,
                     'status': {
-                        'privacyStatus': 'private',
+                        'privacyStatus': 'private',  # Required for publishAt to work
                         'publishAt': publish_at_utc,
                         'selfDeclaredMadeForKids': current_status.get('selfDeclaredMadeForKids', False)
                     }
@@ -335,9 +330,10 @@ class VideoPublisher:
                 logger.info(f"API Response - privacyStatus: {result_privacy}, publishAt: {result_publish_at}")
                 
                 if result_publish_at:
-                    logger.info(f"✅ Successfully scheduled video for publication at {result_publish_at}")
-                    logger.info(f"📅 Video status: Private with scheduled publish time")
-                    logger.info(f"💡 In YouTube Studio, this will show as 'Scheduled' (not 'Private')")
+                    logger.info(f"✅ Successfully scheduled video for automatic publication")
+                    logger.info(f"📅 Publish time: {result_publish_at}")
+                    logger.info(f"📺 YouTube Studio will show this video as 'Scheduled' (not 'Private')")
+                    logger.info(f"🚀 Video will automatically become public at the scheduled time")
                     logger.info({
                         "event": "publish_at_processed",
                         "video_id": video_id,

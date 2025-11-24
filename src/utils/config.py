@@ -73,6 +73,7 @@ class Config:
     ENABLE_SCHEDULED_REOPTIMIZATION = os.getenv('ENABLE_SCHEDULED_REOPTIMIZATION', 'true').lower() == 'true'
     ENABLE_ASR_FALLBACK = os.getenv('ENABLE_ASR_FALLBACK', 'false').lower() == 'true'
     ENABLE_YT_SCHEDULING = os.getenv('ENABLE_YT_SCHEDULING', 'true').lower() == 'true'
+    FORCE_PRIVATE_FOR_SCHEDULING = os.getenv('FORCE_PRIVATE_FOR_SCHEDULING', 'false').lower() == 'true'
     ENABLE_YT_MONETIZATION_FLOW = os.getenv('ENABLE_YT_MONETIZATION_FLOW', 'true').lower() == 'true'
     MONETIZATION_NOTIFY_SLACK = os.getenv('MONETIZATION_NOTIFY_SLACK', 'true').lower() == 'true'
     MONETIZATION_NOTIFY_EMAIL = os.getenv('MONETIZATION_NOTIFY_EMAIL', 'true').lower() == 'true'

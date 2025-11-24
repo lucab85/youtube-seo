@@ -1,0 +1,155 @@
+┌─────────────────────────────────────────────────────────────────────┐
+│                 YOUTUBE SCHEDULING - QUICK REFERENCE                 │
+└─────────────────────────────────────────────────────────────────────┘
+
+╔═════════════════════════════════════════════════════════════════════╗
+║                    HOW YOUTUBE SCHEDULING WORKS                     ║
+╚═════════════════════════════════════════════════════════════════════╝
+
+  ✅ WORKS WITH:  Private or Unlisted videos
+  ❌ DOESN'T WORK: Public videos (without conversion)
+  📺 DISPLAYS AS:  "Scheduled" in YouTube Studio (not "Private")
+  🚀 AUTO-PUBLISH: Video becomes public at scheduled time
+
+╔═════════════════════════════════════════════════════════════════════╗
+║                         BASIC USAGE                                 ║
+╚═════════════════════════════════════════════════════════════════════╝
+
+  # Schedule a video
+  .venv/bin/python main.py \
+    --url "https://youtu.be/VIDEO_ID" \
+    --publish-at "2026-02-05 11:00" \
+    --tz "Europe/Amsterdam"
+
+  # With monetization
+  .venv/bin/python main.py \
+    --url "https://youtu.be/VIDEO_ID" \
+    --publish-at "2026-02-05 11:00" \
+    --tz "Europe/Amsterdam" \
+    --enable-monetization \
+    --made-for-kids false \
+    --ad-suitability standard \
+    --ad-formats "skippable,overlay"
+
+╔═════════════════════════════════════════════════════════════════════╗
+║                    VIDEO STATUS BEHAVIOR                            ║
+╚═════════════════════════════════════════════════════════════════════╝
+
+  ┌────────────────┬──────────────────────────────────────────────────┐
+  │ Current Status │ What Happens                                     │
+  ├────────────────┼──────────────────────────────────────────────────┤
+  │ Private        │ ✅ Scheduled successfully                        │
+  │ Unlisted       │ ✅ Scheduled successfully                        │
+  │ Public         │ ⚠️  Skipped (unless FORCE_PRIVATE enabled)      │
+  └────────────────┴──────────────────────────────────────────────────┘
+
+╔═════════════════════════════════════════════════════════════════════╗
+║                     CONFIGURATION OPTIONS                           ║
+╚═════════════════════════════════════════════════════════════════════╝
+
+  # Add to .env file:
+
+  # Enable/disable scheduling feature
+  ENABLE_YT_SCHEDULING=true
+
+  # Allow converting public videos to private for scheduling
+  # ⚠️  WARNING: Makes public videos private temporarily!
+  FORCE_PRIVATE_FOR_SCHEDULING=false  # Default: false (safer)
+
+╔═════════════════════════════════════════════════════════════════════╗
+║                      HANDLING PUBLIC VIDEOS                         ║
+╚═════════════════════════════════════════════════════════════════════╝
+
+  Option 1: Manual (Recommended)
+  ─────────────────────────────────
+  1. Go to YouTube Studio
+  2. Change video to Private
+  3. Run tool with --publish-at
+
+  Option 2: Automated (Use with Caution)
+  ──────────────────────────────────────
+  1. Set FORCE_PRIVATE_FOR_SCHEDULING=true in .env
+  2. Run tool (converts public → scheduled)
+  3. Remove flag after use
+
+╔═════════════════════════════════════════════════════════════════════╗
+║                         VERIFICATION                                ║
+╚═════════════════════════════════════════════════════════════════════╝
+
+  YouTube Studio:
+  ──────────────
+  1. Visit https://studio.youtube.com/
+  2. Click "Content"
+  3. Video should show "Scheduled" with date/time
+
+  Database:
+  ────────
+  sqlite3 youtube_seo.db \
+    "SELECT video_id, planned_publish_at_local 
+     FROM videos 
+     WHERE planned_publish_at_utc IS NOT NULL;"
+
+╔═════════════════════════════════════════════════════════════════════╗
+║                      COMMON TIMEZONES                               ║
+╚═════════════════════════════════════════════════════════════════════╝
+
+  --tz "UTC"                    # Coordinated Universal Time
+  --tz "America/New_York"       # US Eastern
+  --tz "America/Los_Angeles"    # US Pacific
+  --tz "Europe/London"          # UK
+  --tz "Europe/Paris"           # Central European
+  --tz "Europe/Amsterdam"       # Netherlands
+  --tz "Asia/Tokyo"             # Japan
+  --tz "Australia/Sydney"       # Australia
+
+╔═════════════════════════════════════════════════════════════════════╗
+║                      TROUBLESHOOTING                                ║
+╚═════════════════════════════════════════════════════════════════════╝
+
+  "Video is already public - cannot schedule"
+  ──────────────────────────────────────────
+  → Video is public and FORCE_PRIVATE_FOR_SCHEDULING=false
+  → Solution: Change to private manually or enable force flag
+
+  "publishAt field was not set in response"
+  ─────────────────────────────────────────
+  → YouTube rejected the scheduling request
+  → Check: Date in future? <6 months? No copyright claims?
+
+  Video shows as "Private" not "Scheduled"
+  ────────────────────────────────────────
+  → publishAt field wasn't applied
+  → Check tool logs for errors
+  → Verify date/time is valid
+
+╔═════════════════════════════════════════════════════════════════════╗
+║                         BEST PRACTICES                              ║
+╚═════════════════════════════════════════════════════════════════════╝
+
+  ✅ DO:
+  • Upload new videos as Private initially
+  • Test with far-future dates first
+  • Verify in YouTube Studio after scheduling
+  • Keep FORCE_PRIVATE_FOR_SCHEDULING=false by default
+  • Use consistent timezone across operations
+
+  ❌ DON'T:
+  • Schedule already-public videos (requires extra steps)
+  • Enable FORCE_PRIVATE_FOR_SCHEDULING globally
+  • Schedule times in the past (will fail)
+  • Schedule >6 months ahead (may be rejected)
+
+╔═════════════════════════════════════════════════════════════════════╗
+║                       MORE INFORMATION                              ║
+╚═════════════════════════════════════════════════════════════════════╝
+
+  Full Documentation:  SCHEDULING.md
+  Fix Summary:         SCHEDULING_FIX_SUMMARY.md
+  Test Script:         ./test_scheduling.sh
+  
+  Main Help:
+  .venv/bin/python main.py --help
+
+┌─────────────────────────────────────────────────────────────────────┐
+│  Need help? Check SCHEDULING.md or open a GitHub issue             │
+└─────────────────────────────────────────────────────────────────────┘
