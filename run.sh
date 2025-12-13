@@ -1,1 +1,0 @@
- .venv/bin/python main.py --url "https://youtu.be/S5TSdPW49qA" --publish-at "2026-02-05 11:00" --tz "Europe/Amsterdam" --enable-monetization --made-for-kids false --ad-suitability standard --ad-formats "skippable,overlay"
