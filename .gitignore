@@ -69,3 +69,10 @@ celerybeat.pid
 tmp/
 temp/
 *.tmp
+to_upload/
+#RUN
+BATCH2_RESULTS.md
+run.sh
+upload_videos.sh
+run_videos_batch2.sh
+run.sh

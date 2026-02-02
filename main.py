@@ -460,6 +460,166 @@ def check_guardrails(video_id: str) -> bool:
         return False
 
 
+def handle_upload(args) -> int:
+    """
+    Handle video upload commands.
+    
+    Args:
+        args: Parsed command line arguments
+    
+    Returns:
+        Exit code (0 for success)
+    """
+    import os
+    import glob
+    from src.services.uploader import VideoUploader, list_video_categories
+    
+    # Initialize YouTube client and uploader
+    youtube_client = YouTubeAPIClient()
+    uploader = VideoUploader(youtube_client)
+    
+    # Collect files to upload
+    files_to_upload = []
+    
+    if args.upload:
+        # Single file upload
+        if not os.path.exists(args.upload):
+            logger.error(f"File not found: {args.upload}")
+            return 1
+        files_to_upload.append(args.upload)
+    
+    elif args.upload_folder:
+        # Folder upload
+        if not os.path.isdir(args.upload_folder):
+            logger.error(f"Folder not found: {args.upload_folder}")
+            return 1
+        
+        # Find video files
+        video_extensions = ['*.mp4', '*.mov', '*.avi', '*.mkv', '*.webm', '*.m4v', '*.TS']
+        for ext in video_extensions:
+            pattern = os.path.join(args.upload_folder, ext)
+            files_to_upload.extend(glob.glob(pattern))
+            # Also check lowercase
+            pattern_lower = os.path.join(args.upload_folder, ext.lower())
+            files_to_upload.extend(glob.glob(pattern_lower))
+        
+        # Remove duplicates and sort
+        files_to_upload = sorted(set(files_to_upload))
+        
+        if not files_to_upload:
+            logger.error(f"No video files found in: {args.upload_folder}")
+            return 1
+    
+    logger.info(f"Found {len(files_to_upload)} video(s) to upload")
+    
+    # Upload results tracking
+    uploaded = []
+    failed = []
+    
+    # Process each file
+    for i, file_path in enumerate(files_to_upload, 1):
+        file_name = os.path.basename(file_path)
+        file_size_mb = os.path.getsize(file_path) / 1024 / 1024
+        
+        print(f"\n{'='*80}")
+        print(f"UPLOADING [{i}/{len(files_to_upload)}]: {file_name}")
+        print(f"Size: {file_size_mb:.1f} MB")
+        print(f"{'='*80}")
+        
+        # Determine title
+        title = args.title if args.title and len(files_to_upload) == 1 else None
+        if not title:
+            # Use filename as title
+            title = os.path.splitext(file_name)[0]
+            title = title.replace('_', ' ').replace('-', ' ')
+            title = ' '.join(title.split())  # Normalize spaces
+        
+        # Upload
+        try:
+            result = uploader.upload_video(
+                file_path=file_path,
+                title=title[:100],  # Max 100 chars
+                description=args.description or f"Video uploaded via YouTube SEO tool",
+                tags=[],
+                category=args.category,
+                privacy_status=args.privacy,
+                notify_subscribers=False  # Don't notify until SEO is done
+            )
+            
+            if result:
+                video_id = result.get('id')
+                logger.info(f"✅ Upload successful: {video_id}")
+                logger.info(f"   URL: https://www.youtube.com/watch?v={video_id}")
+                uploaded.append({
+                    'file': file_name,
+                    'video_id': video_id,
+                    'title': title
+                })
+                
+                # Process with SEO if requested
+                if args.process_after_upload:
+                    logger.info("Processing with SEO generator...")
+                    video_url = f"https://www.youtube.com/watch?v={video_id}"
+                    
+                    # Wait a bit for YouTube to process
+                    logger.info("Waiting 30s for YouTube to process video...")
+                    time.sleep(30)
+                    
+                    success = process_single_video(
+                        video_url=video_url,
+                        mode='auto',
+                        dry_run=args.dry_run
+                    )
+                    if success:
+                        logger.info("✅ SEO metadata updated")
+                    else:
+                        logger.warning("⚠️  SEO processing failed (video uploaded but not optimized)")
+            else:
+                logger.error(f"❌ Upload failed: {file_name}")
+                failed.append({'file': file_name, 'error': 'Upload returned None'})
+        
+        except Exception as e:
+            logger.error(f"❌ Error uploading {file_name}: {e}")
+            failed.append({'file': file_name, 'error': str(e)})
+        
+        # Sleep between uploads (except for last one)
+        if i < len(files_to_upload):
+            sleep_time = args.upload_sleep
+            logger.info(f"Sleeping {sleep_time}s before next upload...")
+            time.sleep(sleep_time)
+    
+    # Summary
+    print(f"\n{'='*80}")
+    print("UPLOAD SUMMARY")
+    print(f"{'='*80}")
+    print(f"Total files: {len(files_to_upload)}")
+    print(f"Successful: {len(uploaded)}")
+    print(f"Failed: {len(failed)}")
+    
+    if uploaded:
+        print(f"\n✅ Uploaded videos:")
+        for item in uploaded:
+            print(f"   - {item['file']} -> {item['video_id']}")
+    
+    if failed:
+        print(f"\n❌ Failed uploads:")
+        for item in failed:
+            print(f"   - {item['file']}: {item['error']}")
+    
+    print(f"{'='*80}\n")
+    
+    # Save uploaded video IDs for later processing
+    if uploaded:
+        ids_file = f"logs/uploaded_{time.strftime('%Y%m%d_%H%M%S')}.txt"
+        os.makedirs('logs', exist_ok=True)
+        with open(ids_file, 'w') as f:
+            for item in uploaded:
+                f.write(f"{item['video_id']}\n")
+        logger.info(f"Video IDs saved to: {ids_file}")
+    
+    return 0 if not failed else 1
+
+
 def main():
     """Main CLI entry point."""
     parser = argparse.ArgumentParser(
@@ -491,6 +651,12 @@ Examples:
   # Check guardrails
   python main.py --check-guardrails VIDEO_ID
 
+  # Upload a single video
+  python main.py --upload /path/to/video.mp4 --title "My Video Title"
+
+  # Upload all videos in a folder
+  python main.py --upload-folder /path/to/videos --privacy private
+
   # Initialize database
   python main.py --init-db
         """
@@ -505,6 +671,22 @@ Examples:
                        help='Check performance guardrails for a video')
     parser.add_argument('--check-monetization', metavar='VIDEO_ID',
                        help='Check monetization eligibility status for a video')
+    
+    # Upload options
+    parser.add_argument('--upload', metavar='FILE',
+                       help='Upload a video file to YouTube')
+    parser.add_argument('--upload-folder', metavar='FOLDER',
+                       help='Upload all video files in a folder')
+    parser.add_argument('--title', help='Video title for upload (default: filename)')
+    parser.add_argument('--description', help='Video description for upload')
+    parser.add_argument('--privacy', choices=['public', 'private', 'unlisted'], default='private',
+                       help='Privacy status for uploaded videos (default: private)')
+    parser.add_argument('--category', default='education',
+                       help='Video category (e.g., education, howto, entertainment)')
+    parser.add_argument('--process-after-upload', action='store_true',
+                       help='Process uploaded videos with SEO generator')
+    parser.add_argument('--upload-sleep', type=int, default=5,
+                       help='Seconds to sleep between uploads (default: 5)')
     
     # Monetization options
     parser.add_argument('--enable-monetization', action='store_true',
@@ -554,6 +736,10 @@ Examples:
     # Display configuration
     logger.info(f"Using LLM provider: {Config.get_llm_provider()}")
     logger.info(f"Dry run mode: {Config.DRY_RUN_MODE or args.dry_run}")
+    
+    # Handle upload commands
+    if args.upload or args.upload_folder:
+        return handle_upload(args)
     
     # Check monetization status
     if args.check_monetization:

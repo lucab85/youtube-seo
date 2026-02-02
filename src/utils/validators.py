@@ -150,6 +150,71 @@ def strip_hashtags(text: str) -> str:
     return text.strip()
 
 
+def timestamp_to_seconds(timestamp: str) -> int:
+    """
+    Convert timestamp string (MM:SS or HH:MM:SS) to seconds.
+    
+    Args:
+        timestamp: Timestamp string like "2:15" or "1:02:30"
+    
+    Returns:
+        Total seconds
+    """
+    parts = timestamp.split(':')
+    if len(parts) == 2:
+        return int(parts[0]) * 60 + int(parts[1])
+    elif len(parts) == 3:
+        return int(parts[0]) * 3600 + int(parts[1]) * 60 + int(parts[2])
+    return 0
+
+
+def validate_chapter_timestamps(description: str, video_duration_seconds: int) -> str:
+    """
+    Validate and fix chapter timestamps in description.
+    
+    Removes or fixes any timestamps that exceed the video duration.
+    
+    Args:
+        description: Video description that may contain chapters
+        video_duration_seconds: Total video duration in seconds
+    
+    Returns:
+        Description with invalid timestamps removed/fixed
+    """
+    if video_duration_seconds <= 0:
+        return description
+    
+    # Pattern to match timestamp lines: "0:00 Text" or "00:00 Text" or "1:00:00 Text"
+    timestamp_pattern = r'^(\d{1,2}:\d{2}(?::\d{2})?)\s+(.+)$'
+    
+    lines = description.split('\n')
+    fixed_lines = []
+    removed_count = 0
+    
+    for line in lines:
+        match = re.match(timestamp_pattern, line.strip())
+        if match:
+            timestamp_str = match.group(1)
+            chapter_text = match.group(2)
+            timestamp_seconds = timestamp_to_seconds(timestamp_str)
+            
+            # Check if timestamp exceeds video duration (with 5 second buffer)
+            if timestamp_seconds > video_duration_seconds + 5:
+                logger.warning(
+                    f"Removing invalid chapter timestamp '{timestamp_str}' "
+                    f"(exceeds video duration of {video_duration_seconds}s): {chapter_text}"
+                )
+                removed_count += 1
+                continue  # Skip this line
+        
+        fixed_lines.append(line)
+    
+    if removed_count > 0:
+        logger.warning(f"Removed {removed_count} chapter timestamp(s) that exceeded video duration")
+    
+    return '\n'.join(fixed_lines)
+
+
 def enforce_character_limits(
     title: str,
     description: str,

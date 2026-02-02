@@ -6,6 +6,7 @@ from .seo_generator import SEOGenerator
 from .publisher import VideoPublisher
 from .analytics import AnalyticsService
 from .notifier import Notifier
+from .uploader import VideoUploader
 
 __all__ = [
     'YouTubeAPIClient',
@@ -14,4 +15,5 @@ __all__ = [
     'VideoPublisher',
     'AnalyticsService',
     'Notifier',
+    'VideoUploader',
 ]

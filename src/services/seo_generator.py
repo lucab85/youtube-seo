@@ -9,7 +9,7 @@ import google.generativeai as genai
 
 from ..utils.config import Config
 from ..utils.logger import get_logger
-from ..utils.validators import enforce_character_limits, parse_tags_input, format_tags_output
+from ..utils.validators import enforce_character_limits, parse_tags_input, format_tags_output, validate_chapter_timestamps
 
 logger = get_logger('seo_generator')
 
@@ -96,6 +96,14 @@ class SEOGenerator:
             tags=metadata['tags'],
             strict=True
         )
+        
+        # Validate chapter timestamps against video duration
+        video_duration_seconds = context.get('video_duration_seconds', 0) if context else 0
+        if video_duration_seconds > 0:
+            metadata['description'] = validate_chapter_timestamps(
+                metadata['description'],
+                video_duration_seconds
+            )
         
         # Apply policy filters
         if policy_config:
